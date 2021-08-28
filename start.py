@@ -10,7 +10,8 @@ class Nitftomatics:
         """
         Setting up all the data needed for reporting.
         """
-        self.tweeters = ["KoalaAgencyNFT", "satoshibles", "GoonsNft", "Aworld_NFT"]
+        self.tweeters = ["larvalabs", "artblocks_io", "BoredApeYC", "0n1Force", "MyCurioCards", "ParallelNFT",
+                         "Pudgy_Penguins", "coolcatsnft", "KoalaAgencyNFT", "punkscomic", "satoshibles", "GoonsNft", "Aworld_NFT"]
 
     def _get_tweeter_subscribers(self, username):
         """
