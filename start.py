@@ -10,12 +10,25 @@ class Nitftomatics:
         """
         Setting up all the data needed for reporting.
         """
-        self.tweeters = ["larvalabs", "artblocks_io", "BoredApeYC", "0n1Force", "MyCurioCards", "ParallelNFT",
-                         "Pudgy_Penguins", "coolcatsnft", "KoalaAgencyNFT", "punkscomic", "satoshibles", "GoonsNft", "Aworld_NFT"]
+        self.tweeters = ["larvalabs",
+                         "artblocks_io",
+                         "BoredApeYC",
+                         "0n1Force",
+                         "MyCurioCards",
+                         "ParallelNFT",
+                         "Pudgy_Penguins",
+                         "coolcatsnft",
+                         "KoalaAgencyNFT",
+                         "punkscomic",
+                         "satoshibles",
+                         "GoonsNft",
+                         "Aworld_NFT"]
 
-    def _get_tweeter_subscribers(self, username):
+    @staticmethod
+    def _get_tweeter_subscribers(username):
         """
         Getting the number of followers of the account.
+        :param str username: the tweeter username of the project.
         :return int followers: the number of followers of the account.
         """
         consumer_key = ""
