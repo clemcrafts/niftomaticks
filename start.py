@@ -3,7 +3,7 @@ import tweepy,csv, datetime
 
 class Nitftomatics:
     """
-    Class in charge of analysing a NFT project
+    Class in charge of data reporting for a list of NFT projects.
     """
 
     def __init__(self):
