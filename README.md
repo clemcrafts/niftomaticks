@@ -17,8 +17,12 @@ And launch the application:
 python start.py
 ```
 
-Result:
+A CSV will be generated with a list of subscribers for the different projects:
 
 ```
-"The project has 6680 subscribers"
+project,tweeter_followers
+KoalaAgencyNFT,12120
+satoshibles,2929
+GoonsNft,5925
+Aworld_NFT,1181
 ```
