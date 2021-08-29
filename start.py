@@ -46,7 +46,7 @@ class Nitftomatics:
         Write CSV with the tweeter count of each project for a given date.
         """
         time = datetime.datetime.now().strftime("%Y_%m_%d-%I_%M_%p")
-        filename = time + '.csv'
+        filename = 'reports/' + time + '.csv'
         with open(filename, 'w') as file:
             writer = csv.writer(file)
             writer.writerow(["project", "tweeter_followers"])
