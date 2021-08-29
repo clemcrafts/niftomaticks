@@ -31,10 +31,10 @@ class Nitftomatics:
         :param str username: the tweeter username of the project.
         :return int followers: the number of followers of the account.
         """
-        consumer_key = ""
-        consumer_secret = ""
-        access_token = ""
-        access_token_secret = ""
+        consumer_key = "nOx3OLio6rcyBRlRu93Xa9vD0"
+        consumer_secret = "ZTFJGo0tb7906eBhbm2I6zOB972WZWVdwL71vInDd9wpxF1ECt"
+        access_token = "1222219928327131137-xMfcmsF0bPsduzcxqZFDyDnYQYVjm6"
+        access_token_secret = "ssx3ND2E5vSVmnXKFj5eI7dWWzWhQUCr5AmMyTSHCGunw"
         auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
         auth.set_access_token(access_token, access_token_secret)
         api = tweepy.API(auth)
