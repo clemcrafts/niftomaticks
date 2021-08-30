@@ -23,7 +23,11 @@ class Plot:
                          "punkscomic",
                          "satoshibles",
                          "GoonsNft",
-                         "Aworld_NFT"]
+                         "Aworld_NFT",
+                         "DropBearsio",
+                         "alcabonesNFT",
+                         "Atomicantznft"]
+
         self.files = ['reports/2021_08_29-12_00_AM.csv',
                       'reports/2021_08_30-12_00_AM.csv']
         self.followers = {}
@@ -58,16 +62,16 @@ class Plot:
 
     def plot_demo(self):
 
-        plt.ylabel("Growth Rate (%)", weight='bold')
-        plt.title("Average Tweeter Growth Rate (%) of Last 1 Day(s)", weight='bold')
+        plt.xlabel("Growth Rate (%)", weight='bold', fontsize=19)
+        plt.title("Average Tweeter Growth Rate (%) of Last 1 Day(s)", weight='bold', fontsize=19)
+        plt.rcParams["axes.labelsize"] = 35
         ordered_growth = {k: v for k, v in sorted(self.growth.items(), key=lambda item: item[1])}
-
         projects = []
         growths = []
         for project, growth in ordered_growth.items():
             projects.append(project)
             growths.append(growth)
-        sns.barplot(projects, growths)
+        sns.barplot(growths, projects)
         plt.show()
 
 
