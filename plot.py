@@ -1,6 +1,6 @@
 import tweepy,csv
 import matplotlib.pyplot as plt
-
+import seaborn as sns
 
 class Plot:
     """
@@ -56,17 +56,18 @@ class Plot:
                 growth_rate = (float(follower)/float(init_followers)-1)*100
             self.growth[project] = growth_rate
 
-    def plot_growth_rate(self):
-        """
-        Plot growth rate.
-        """
-        x_pos = [i for i, _ in enumerate(self.tweeters)]
-        values = [self.growth[tweeters] for _, tweeters in enumerate(self.tweeters)]
-        plt.bar(x_pos, values, color='blue')
-        plt.xlabel("NFT projects")
-        plt.ylabel("Growth rate (%)")
-        plt.title("Average Tweeter growth rate for the last 1 day(s)")
-        plt.xticks(x_pos, self.tweeters)
+    def plot_demo(self):
+
+        plt.ylabel("Growth Rate (%)", weight='bold')
+        plt.title("Average Tweeter Growth Rate (%) of Last 1 Day(s)", weight='bold')
+        ordered_growth = {k: v for k, v in sorted(self.growth.items(), key=lambda item: item[1])}
+
+        projects = []
+        growths = []
+        for project, growth in ordered_growth.items():
+            projects.append(project)
+            growths.append(growth)
+        sns.barplot(projects, growths)
         plt.show()
 
 
@@ -74,4 +75,4 @@ if __name__ == '__main__':
     plot = Plot()
     plot.load_project_followers()
     plot.get_growth_rate()
-    plot.plot_growth_rate()
+    plot.plot_demo()
