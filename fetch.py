@@ -1,9 +1,9 @@
 import tweepy,csv, datetime
 
 
-class Nitftomatics:
+class Fetch:
     """
-    Class in charge of data reporting for a list of NFT projects.
+    Class in charge of fetching data for a list of NFT projects.
     """
 
     def __init__(self):
@@ -23,6 +23,7 @@ class Nitftomatics:
                          "satoshibles",
                          "GoonsNft",
                          "Aworld_NFT"]
+
 
     @staticmethod
     def _get_tweeter_subscribers(username):
@@ -58,8 +59,8 @@ def start():
     """
     Start the application
     """
-    niftomatics = Nitftomatics()
-    niftomatics.write_csv()
+    fetch = Fetch()
+    fetch.write_csv()
 
 if __name__ == '__main__':
     start()

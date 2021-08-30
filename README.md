@@ -11,18 +11,16 @@ source env/bin/activate
 pip install -r requirements.txt 
 ```
 
-And launch the application:
+To fetch the data:
 
 ```
-python start.py
+python fetch.py
 ```
 
-A CSV will be generated with a list of subscribers for the different projects:
+A CSV with a subscribers count will be generated.
+
+To plot the data:
 
 ```
-project,tweeter_followers
-KoalaAgencyNFT,12120
-satoshibles,2929
-GoonsNft,5925
-Aworld_NFT,1181
+python plot.py
 ```
