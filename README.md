@@ -1,7 +1,7 @@
 # Niftomaticks
 An application to back collectible investments with data.
 
-![alt tag](https://i.ibb.co/Jx75Wjv/Screenshot-2021-08-30-at-18-21-00.png)
+![alt tag](https://i.ibb.co/p0ZKMtn/Screenshot-2021-08-30-at-18-36-25.png)
 
 
 ## Launch the job
