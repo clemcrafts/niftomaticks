@@ -1,0 +1,340 @@
+# Include specifics for the various components.
+# Refer to these files for overrides.
+include:
+  - local: '/ci-templates/.gitlab-ci-api.yml'
+  - local: '/ci-templates/.gitlab-ci-ingester.yml'
+  - local: '/ci-templates/.gitlab-ci-enricher.yml'
+
+services:
+  - docker:dind
+
+stages:
+  - component-test
+  - QA
+  - publish-image
+  - deploy
+  - smoke
+  - performance
+
+variables:
+  AWS_REGION: eu-west-1
+  AWS_PROFILE_LOCATION: /root/.aws/credentials
+  COMPONENT_NAME: set-me
+  PROJECT_NAME: $CI_PROJECT_NAME
+  ECR_URL: 317136502035.dkr.ecr.$AWS_REGION.amazonaws.com/$PROJECT_NAME
+  DOCKERFILE_LOCATION: $COMPONENT_NAME/Dockerfile
+  LATEST_DEV_TAG: latest-dev
+  LATEST_PREPROD_TAG: latest-preprod
+  LATEST_UAT_TAG: latest-uat
+  LATEST_PROD_TAG: latest
+
+before_script:
+  - set -x
+
+# ============================================|
+# ---------------- SCRIPTS -------------------|
+# ============================================|
+
+# |===============================|
+# |------ Build script -----------|
+# |===============================|
+
+.build:
+  before_script:
+    - apk add --no-cache curl jq python py-pip
+    - export CI_COMMIT_SHA_SHORT=${CI_COMMIT_SHA::8}
+    - export CURR_BUILD_TAG="${CI_COMMIT_TAG:-${CI_COMMIT_SHA_SHORT}}"
+    - echo "Build image ${PROJECT_NAME}:${CURR_BUILD_TAG} ..."
+    - docker build -f ${DOCKERFILE_LOCATION} -t ${PROJECT_NAME}:${CURR_BUILD_TAG} .
+
+# |===============================|
+# |------ Deploy script ----------|
+# |===============================|
+
+# Input variables:
+# ${TARGET_ENV}      -  Target environment    - <dev/preprod/uat/prod>
+# ${DEPLOY_TAG}      -  Tag to deploy         - <git commit id (for dev) or git tag (for uat & prod)>
+# ${ENV_LATEST_TAG}  -  For e2e test purpose  - <latest-dev / latest-uat / latest>
+.deploy:
+  stage: deploy
+  image:
+    name: hashicorp/terraform:0.11.14
+    entrypoint:
+      - '/usr/bin/env'
+  script:
+    - export CI_COMMIT_SHA_SHORT=${CI_COMMIT_SHA::8}
+    # prepare awscli
+    - apk add --no-cache curl jq python py-pip && pip install awscli
+    # Unfortunately  we can not use ${CI_JOB_TOKEN} to avoid the ugly steps below... (https://github.com/hashicorp/terraform/issues/1439)
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client git -y )'
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan engine.intelematics.club >> ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+
+    # Tag with latest tag for env (for E2E purposes)
+    - MANIFEST=$(aws ecr batch-get-image --repository-name ${PROJECT_NAME} --image-ids imageTag=${CI_COMMIT_SHA_SHORT} --query 'images[].imageManifest' --output text)
+    - CURR_IMAGE_DESCRIPTION=$(aws ecr describe-images --repository-name ${PROJECT_NAME} --image-ids imageTag=${CI_COMMIT_SHA_SHORT})
+    - if [ -z "${CURR_IMAGE_DESCRIPTION##*$ENV_LATEST_TAG*}" ]; then echo "Already tagged with $ENV_LATEST_TAG"; else  aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${ENV_LATEST_TAG} --image-manifest "$MANIFEST";  fi
+    - aws ecr describe-images --repository-name ${PROJECT_NAME} --image-ids imageTag=${CI_COMMIT_SHA_SHORT}
+
+    # DEPLOY
+    - terraform init -force-copy ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/global
+    - terraform apply -auto-approve ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/global
+    - rm -rf .terraform
+    - terraform init -force-copy ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/services
+    - terraform workspace select ${TARGET_ENV} ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/services
+    - terraform init -force-copy ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/services
+    - echo "About to deploy tag ${DEPLOY_TAG}"
+    - terraform apply -auto-approve -var docker_image_tag=${DEPLOY_TAG} -var-file="${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/services/${TARGET_ENV}.tfvars" ${CI_PROJECT_DIR}/terraform/${COMPONENT_NAME}/services
+    # If no ENV latest tags for some environments, make current image latest
+    - FULL_IMAGE_DESCRIPTION=$(aws ecr describe-images --repository-name ${PROJECT_NAME})
+    - if [ -z "${FULL_IMAGE_DESCRIPTION##*$LATEST_DEV_TAG*}" ]; then echo "$LATEST_DEV_TAG already set for project"; else aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${LATEST_DEV_TAG} --image-manifest "$MANIFEST";  fi
+    - if [ -z "${FULL_IMAGE_DESCRIPTION##*$LATEST_PREPROD_TAG*}" ]; then echo "$LATEST_PREPROD_TAG already set for project"; else aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${LATEST_PREPROD_TAG} --image-manifest "$MANIFEST";  fi
+    - if [ -z "${FULL_IMAGE_DESCRIPTION##*$LATEST_UAT_TAG*}" ]; then echo "$LATEST_UAT_TAG already set for project"; else aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${LATEST_UAT_TAG} --image-manifest "$MANIFEST";  fi
+    - if [ -z "${FULL_IMAGE_DESCRIPTION##*$LATEST_PROD_TAG*}" ]; then echo "$LATEST_PROD_TAG already set for project"; else aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${LATEST_PROD_TAG} --image-manifest "$MANIFEST";  fi
+
+
+# |============================================|
+# |-------------- CI/CD PIPELINE --------------|
+# |============================================|
+
+
+# |===============================|
+# |------ Component test ---------|
+# |===============================|
+
+# -- Run component tests (All pushes except for master and tags)
+# This is just a template, you must extend it in the ci-templates directories.
+.component-test:
+  stage: component-test
+  image: docker:latest
+  extends: .build
+  script:
+    - docker run ${PROJECT_NAME}:${CURR_BUILD_TAG} /bin/bash -c "coverage run -m pytest tests/${COMPONENT_NAME} && coverage report"
+    - echo "end of component test"
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  only:
+    - branches
+  except:
+    - tags
+    - master
+
+.functional-tests:
+  image: tmaier/docker-compose:latest
+  variables:
+    SERVICE_NAME: functional
+    BASE_URL: http://api:8000
+  artifacts:
+    paths:
+      - functional-tests-reports-${SERVICE_NAME}
+    reports:
+      junit: functional-tests-reports-${SERVICE_NAME}/SERENITY-JUNIT-*.xml
+  script:
+    - docker-compose -f docker-compose.yml -f docker-compose.functional.yml run ${SERVICE_NAME}
+    - mv automatedtests/functional/target/site/serenity functional-tests-reports-${SERVICE_NAME}
+  retry: 1
+
+.smoke:
+  extends: .functional-tests
+  stage: smoke
+  variables:
+    SERVICE_NAME: smoke
+    BASE_URL: https://impact.dev.ieu.intelematics.club
+  script:
+    - docker-compose -f docker-compose.smoke.yml run ${SERVICE_NAME}
+    - mv automatedtests/functional/target/site/serenity functional-tests-reports-${SERVICE_NAME}
+  when: delayed  # Delay the beginning of post deployment steps for start_in duration
+  start_in: 2 minutes
+
+.non-functional-tests:
+  image: tmaier/docker-compose:latest
+  variables:
+    SERVICE_NAME: api-performance
+    HOST: impact.dev.ieu.intelematics.club
+  artifacts:
+    paths:
+      - non-functional-tests-reports-${SERVICE_NAME}
+  script:
+    - docker-compose -f docker-compose.non-functional.yml run ${SERVICE_NAME}
+    - mv automatedtests/non-functional/APILoadTestReport non-functional-tests-reports-${SERVICE_NAME}
+  retry: 1
+
+.performance:
+  extends: .non-functional-tests
+  stage: performance
+
+automated tests:
+  extends: .functional-tests
+  stage: QA
+
+
+# |===============================|
+# |------ Publish image ----------|
+# |===============================|
+
+.publish-image:
+  image: docker:latest
+  stage: publish-image
+  extends: .build
+  script:
+    - apk add --no-cache curl jq python py-pip
+    - pip install awscli
+    - $(aws ecr get-login --no-include-email --region $AWS_REGION)
+    # Set image to push
+    - export IMAGE_TO_PUSH=${ECR_URL}:${CI_COMMIT_SHA_SHORT}
+    # tag image with ${CI_COMMIT_SHA_SHORT}
+    - echo "docker tag ${PROJECT_NAME}:${CURR_BUILD_TAG} ${IMAGE_TO_PUSH}"
+    - docker tag ${PROJECT_NAME}:${CURR_BUILD_TAG} ${IMAGE_TO_PUSH}
+    # push image with tag ${CI_COMMIT_SHA_SHORT}
+    - docker push ${IMAGE_TO_PUSH}
+    # Tag with git tag if set
+    - MANIFEST=$(aws ecr batch-get-image --repository-name ${PROJECT_NAME} --image-ids imageTag=${CI_COMMIT_SHA_SHORT} --query 'images[].imageManifest' --output text)
+    - if [ -z ${CI_COMMIT_TAG+x} ]; then echo "Commit did not have a git tag."; else aws ecr put-image --repository-name ${PROJECT_NAME} --image-tag ${CI_COMMIT_TAG} --image-manifest "$MANIFEST"; fi
+    # Describe pushed image
+    - aws ecr describe-images --repository-name ${PROJECT_NAME} --query 'sort_by(imageDetails,& imagePushedAt)[-1]'
+  only:
+    - develop
+    - tags
+
+## |===============================|
+## |------ Deploy image -----------|
+## |===============================|
+
+# -- Deploy to DEV (Pushes to dev - Manual option)
+
+.deploy-dev:
+  extends: .deploy
+  environment:
+    name: dev
+  variables:
+    TARGET_ENV: dev
+    ENV_LATEST_TAG: ${LATEST_DEV_TAG}
+  before_script:
+    - export CI_COMMIT_SHA_SHORT=${CI_COMMIT_SHA::8}
+    - export DEPLOY_TAG=${CI_COMMIT_SHA_SHORT}
+  when: manual
+  only:
+    - develop
+
+# -- Deploy to PREPROD (Pushes to dev - Manual option)
+
+.deploy-preprod:
+  extends: .deploy
+  environment:
+    name: preprod
+  variables:
+    TARGET_ENV: preprod
+    ENV_LATEST_TAG: ${LATEST_PREPROD_TAG}
+  before_script:
+    - export CI_COMMIT_SHA_SHORT=${CI_COMMIT_SHA::8}
+    - export DEPLOY_TAG=${CI_COMMIT_SHA_SHORT}
+  when: manual
+  only:
+    - develop
+
+# -- Deploy to UAT (All tags - Manual option)
+
+.deploy-uat:
+  extends: .deploy
+  environment:
+    name: uat
+  variables:
+    TARGET_ENV: uat
+    ENV_LATEST_TAG: ${LATEST_UAT_TAG}
+    DEPLOY_TAG: ${CI_COMMIT_TAG}
+  when: manual
+  only:
+    - tags
+
+# -- Deploy to PROD (All tags - Manual option)
+
+.deploy-prod:
+  extends: .deploy
+  environment:
+    name: prod
+  variables:
+    TARGET_ENV: prod
+    ENV_LATEST_TAG: ${LATEST_PROD_TAG}
+    DEPLOY_TAG: ${CI_COMMIT_TAG}
+  when: manual
+  only:
+    - tags
+
+## |===============================|
+## |------ Post deployment --------|
+## |===============================|
+
+# These run after a deployment.
+# First is smoke tests, on all environments
+# Second is performance tests, only on non-live environments
+
+# Smoke tests
+smoke:dev:
+  extends: .smoke
+  environment:
+    name: dev
+  variables:
+    BASE_URL: https://impact.dev.ieu.intelematics.club
+  needs:
+    - api deploy:dev
+  only:
+    - develop
+
+smoke:preprod:
+  extends: .smoke
+  environment:
+    name: preprod
+  variables:
+    BASE_URL: https://impact.preprod.ieu.intelematics.club
+  needs:
+    - api deploy:preprod
+  only:
+    - develop
+
+smoke:uat:
+  extends: .smoke
+  environment:
+    name: uat
+  variables:
+    BASE_URL: https://impact.uat.ieu.intelematics.club
+  needs:
+    - api deploy:uat
+  only:
+    - tags
+
+smoke:prod:
+  extends: .smoke
+  environment:
+    name: prod
+  variables:
+    BASE_URL: https://impact.prod.ieu.intelematics.club
+  needs:
+    - api deploy:prod
+  only:
+    - tags
+
+# API performance tests
+api-performance:dev:
+  extends: .performance
+  environment:
+    name: dev
+  variables:
+    HOST: impact.dev.ieu.intelematics.club
+  needs:
+    - api deploy:dev
+    - smoke:dev
+  only:
+    - develop
+
+api-performance:preprod:
+  extends: .performance
+  environment:
+    name: preprod
+  variables:
+    HOST: impact.preprod.ieu.intelematics.club
+  needs:
+    - api deploy:preprod
+    - smoke:preprod
+  only:
+    - develop
